@@ -1,8 +1,7 @@
+export const dynamic = 'force-dynamic'
 'use client'
 
-export const dynamic = 'force-dynamic'
-
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import ProtectedRoute from '@/components/protected-route'
 import Link from 'next/link'
@@ -31,7 +30,7 @@ function generateJobNumber(): string {
   return `JOB-${date}-${r}`
 }
 
-export default function CreateJobPage() {
+function CreateJobPageContent() {
   const { site } = useAuth()
   const router = useRouter()
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -481,4 +480,11 @@ export default function CreateJobPage() {
       </div>
     </ProtectedRoute>
   )
+}
+export default function CreateJobPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-[60vh]"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cityfleet-gold" /></div>}>
+      <CreateJobPageContent />
+    </Suspense>
+  );
 }
