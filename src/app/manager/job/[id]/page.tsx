@@ -6,6 +6,7 @@ import ProtectedRoute from '@/components/protected-route'
 import Link from 'next/link'
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useSiteMechanicsWithStatus } from '@/hooks/useSiteMechanicsWithStatus'
 
 interface JobDetail {
   id: string
@@ -27,6 +28,7 @@ interface RelatedJobRow {
   id: string
   job_number: string
   status: string
+  assigned_mechanic_id: string | null
 }
 
 interface DefectRow {
@@ -92,6 +94,9 @@ export default function ManagerJobDetailPage() {
   const [creatingInvoice, setCreatingInvoice] = useState(false)
   const [clearingPaymentId, setClearingPaymentId] = useState<string | null>(null)
   const [releasing, setReleasing] = useState(false)
+  const [assigningMechanic, setAssigningMechanic] = useState(false)
+  const [suggestedMechanicId, setSuggestedMechanicId] = useState<string | null>(null)
+  const { mechanicsWithStatus, mechanics, loading: mechanicsLoading } = useSiteMechanicsWithStatus()
 
   const loadJob = useCallback(async () => {
     if (!id) return
@@ -140,7 +145,7 @@ export default function ManagerJobDetailPage() {
     const supabase = createClient()
     const { data } = await (supabase as any)
       .from('jobs')
-      .select('id, job_number, status')
+      .select('id, job_number, status, assigned_mechanic_id')
       .eq('vehicle_id', vehicleId)
       .eq('site_id', site.id)
       .neq('id', id)
@@ -174,6 +179,17 @@ export default function ManagerJobDetailPage() {
   useEffect(() => {
     if (job?.vehicle_id) loadRelatedJobs(job.vehicle_id)
   }, [job?.vehicle_id, loadRelatedJobs])
+
+  useEffect(() => {
+    if (!job || !relatedJobs.length) {
+      setSuggestedMechanicId(null)
+      return
+    }
+    const other = relatedJobs.find(
+      (j) => ['in_progress', 'approved'].includes(j.status) && j.assigned_mechanic_id
+    )
+    setSuggestedMechanicId(other?.assigned_mechanic_id ?? null)
+  }, [job, relatedJobs])
 
   useEffect(() => {
     const supabase = createClient()
@@ -342,6 +358,28 @@ export default function ManagerJobDetailPage() {
     }
   }
 
+  async function handleAssignMechanic(mechanicId: string | null) {
+    setAssigningMechanic(true)
+    setError(null)
+    try {
+      const supabase = createClient()
+      const { error: e } = await (supabase as any)
+        .from('jobs')
+        .update({
+          assigned_mechanic_id: mechanicId,
+          updated_at: new Date().toISOString(),
+          ...(mechanicId ? { status: 'approved' } : {}),
+        })
+        .eq('id', id)
+      if (e) throw e
+      await loadJob()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setAssigningMechanic(false)
+    }
+  }
+
   if (loading) {
     return (
       <ProtectedRoute allowedRoles={['workshop_manager', 'ops_manager']}>
@@ -414,6 +452,53 @@ export default function ManagerJobDetailPage() {
               <p className="text-gray-500 text-sm">Description</p>
               <p className="font-medium">{job!.description}</p>
             </div>
+            <div className="border-t border-gray-100 pt-4 mt-2">
+                <p className="text-gray-700 font-medium mb-2">Assign mechanic</p>
+                {mechanicsLoading ? (
+                  <p className="text-sm text-gray-500">Loading mechanics…</p>
+                ) : mechanicsWithStatus.length === 0 ? (
+                  <p className="text-sm text-gray-600">
+                    No mechanics at this site. Add mechanics in Admin → Users, or assign from the{' '}
+                    <Link href="/manager/dashboard" className="text-cityfleet-gold font-medium hover:underline">Job board</Link> (All jobs table).
+                  </p>
+                ) : (
+                  <>
+                    <ul className="mb-3 space-y-1.5 text-sm">
+                      {mechanicsWithStatus.map(({ mechanic, hasActiveJob, currentJobNumber }) => (
+                        <li key={mechanic.id} className="flex items-center gap-2">
+                          <span
+                            className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${
+                              hasActiveJob ? 'bg-amber-500' : 'bg-green-500'
+                            }`}
+                            title={hasActiveJob ? `On job ${currentJobNumber ?? ''}` : 'Available'}
+                          />
+                          <span className="text-gray-800">{mechanic.name}</span>
+                          {hasActiveJob && currentJobNumber && (
+                            <span className="text-gray-500 text-xs">(on {currentJobNumber})</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    {suggestedMechanicId && !job!.assigned_mechanic_id && (
+                      <p className="text-xs text-blue-700 mb-2">
+                        Suggested: {mechanics.find((m) => m.id === suggestedMechanicId)?.name} (currently working on this vehicle)
+                      </p>
+                    )}
+                    <select
+                      value={job!.assigned_mechanic_id ?? suggestedMechanicId ?? ''}
+                      onChange={(e) => handleAssignMechanic(e.target.value || null)}
+                      disabled={assigningMechanic}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[220px]"
+                    >
+                      <option value="">Unassigned — select mechanic</option>
+                      {mechanicsWithStatus.map(({ mechanic }) => (
+                        <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>
+                      ))}
+                    </select>
+                    {assigningMechanic && <span className="ml-2 text-xs text-gray-500">Saving…</span>}
+                  </>
+                )}
+              </div>
           </div>
 
           {/* Jobs for this vehicle — two-hand inspection (each job ID recorded separately) */}
