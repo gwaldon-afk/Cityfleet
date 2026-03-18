@@ -63,7 +63,9 @@ export function useSiteMechanicsWithStatus() {
       const entries = (timeRes.data || []).filter((t: { job_id: string }) => siteJobIds.has(t.job_id))
       setActiveTimeEntries(entries)
 
-      const jobMap = new Map((siteJobsRes.data || []).map((j: { id: string; job_number: string }) => [j.id, j.job_number]))
+      const jobMap = new Map<string, string>(
+        (siteJobsRes.data || []).map((j: { id: string; job_number: string }) => [j.id, j.job_number])
+      )
       setJobNumberByJobId(jobMap)
     } catch {
       setMechanics([])
