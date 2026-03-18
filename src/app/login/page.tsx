@@ -1,11 +1,12 @@
-export const dynamic = 'force-dynamic'
 'use client'
 
-import { useState, useEffect } from 'react'
+export const dynamic = 'force-dynamic'
+
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 
-export default function LoginPage() {
+function LoginPageContent() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -153,5 +154,20 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+
   )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cityfleet-gold" />
+        </div>
+      }
+    >
+      <LoginPageContent />
+    </Suspense>
+  );
 }
