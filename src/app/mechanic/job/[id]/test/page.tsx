@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import { extractOdometerFromImage } from '@/lib/ocr'
 
 // ─── MOCK DATA ─────────────────────────────────────────────────────────────
 const MOCK_JOB = {
@@ -17,6 +19,9 @@ const MOCK_DEFECTS = [
 ]
 
 export default function TestDriveScreen() {
+  const params = useParams()
+  const router = useRouter()
+  const jobId = params?.id as string
   const [testDriveCompleted, setTestDriveCompleted] = useState<boolean | null>(null)
   const [postOdometer, setPostOdometer] = useState('')
   const [odometerPhoto, setOdometerPhoto] = useState<string | null>(null)
@@ -25,10 +30,11 @@ export default function TestDriveScreen() {
   const [postRepairPhotos, setPostRepairPhotos] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [odometerScanning, setOdometerScanning] = useState(false)
   const odometerInputRef = useRef<HTMLInputElement>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
 
-  const handleOdometerPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleOdometerPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
@@ -36,6 +42,16 @@ export default function TestDriveScreen() {
       if (ev.target?.result) setOdometerPhoto(ev.target.result as string)
     }
     reader.readAsDataURL(file)
+    e.target.value = ''
+    setOdometerScanning(true)
+    try {
+      const km = await extractOdometerFromImage(file)
+      if (km != null) setPostOdometer(String(km))
+    } catch {
+      // OCR failed — user can enter km manually
+    } finally {
+      setOdometerScanning(false)
+    }
   }
 
   const handlePostRepairPhotos = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,13 +106,17 @@ export default function TestDriveScreen() {
           <h2 className="text-xl font-bold text-gray-800 mb-2">Test Confirmed</h2>
           <p className="text-gray-600 mb-1">Odometer: {MOCK_JOB.pre_odometer} → {postOdometer} ({kmDifference} km)</p>
           <p className="text-sm text-gray-500 mb-6">Proceed to completion checklist.</p>
-          <a
-            href="/mechanic/completion"
+          <button
+            type="button"
+            onClick={() => {
+              if (jobId) router.push(`/mechanic/job/${jobId}/complete/completion`)
+              else router.push('/mechanic/jobs')
+            }}
             className="block w-full py-3 rounded-lg text-white font-bold text-lg text-center"
             style={{ backgroundColor: '#B8860B' }}
           >
             CONTINUE TO COMPLETION →
-          </a>
+          </button>
         </div>
       </div>
     )
@@ -174,7 +194,7 @@ export default function TestDriveScreen() {
               type="number"
               value={postOdometer}
               onChange={(e) => setPostOdometer(e.target.value)}
-              placeholder="Enter km reading..."
+              placeholder={odometerScanning ? 'Scanning…' : 'Enter km reading or use photo OCR'}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
             />
             {postOdometer && (
@@ -202,12 +222,15 @@ export default function TestDriveScreen() {
               </div>
             ) : (
               <button
+                type="button"
                 onClick={() => odometerInputRef.current?.click()}
-                className="w-full border-2 border-dashed border-gray-300 rounded-lg py-3 text-sm text-gray-600"
+                disabled={odometerScanning}
+                className="w-full border-2 border-dashed border-gray-300 rounded-lg py-3 text-sm text-gray-600 disabled:opacity-50"
               >
-                📷 Take photo of odometer
+                {odometerScanning ? '⏳ Scanning…' : '📷 Take photo of odometer (OCR will try to fill reading)'}
               </button>
             )}
+            <p className="text-xs text-gray-500 mt-1">If OCR fails, enter the km reading manually above.</p>
           </div>
         </div>
 

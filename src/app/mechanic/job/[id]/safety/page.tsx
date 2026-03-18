@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import ProtectedRoute from '@/components/protected-route'
+import { uploadJobAttachment, createJobAttachmentRecord } from '@/lib/supabase/storage'
+import { extractVINFromImage } from '@/lib/ocr'
 
 export default function SafetyChecklistPage({ params }: { params: { id: string } }) {
   const { user } = useAuth()
@@ -12,16 +14,36 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [job, setJob] = useState<any>(null)
-  
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // S-05: Walk-around mandatory (HARD)
+  const [walkAroundFiles, setWalkAroundFiles] = useState<{ path: string; url: string }[]>([])
+  const [uploadingWalkAround, setUploadingWalkAround] = useState(false)
+
   // S-02, S-03, S-04 controls
   const [safeEnvironment, setSafeEnvironment] = useState<boolean | null>(null)
   const [notBlockingJob, setNotBlockingJob] = useState<boolean | null>(null)
   const [vin, setVin] = useState('')
+  const [devSkipWalkAround, setDevSkipWalkAround] = useState(false)
+  const [vinScanning, setVinScanning] = useState(false)
+  const vinPhotoRef = useRef<HTMLInputElement>(null)
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createClient()
+
+  const handleVINPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setVinScanning(true)
+    try {
+      const parsed = await extractVINFromImage(file)
+      if (parsed) setVin(parsed)
+    } catch {
+      // OCR failed — user can enter manually
+    } finally {
+      setVinScanning(false)
+      e.target.value = ''
+    }
+  }
 
   useEffect(() => {
     loadJob()
@@ -29,30 +51,83 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
 
   const loadJob = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('jobs')
-        .select('*')
+        .select('*, vehicle:vehicles(vin)')
         .eq('id', params.id)
         .single()
 
       if (error) throw error
       setJob(data)
+      // Pre-fill VIN from seed/vehicle data so testing doesn't require typing it
+      const vehicleVin = data?.vehicle?.vin
+      if (vehicleVin && String(vehicleVin).length === 17) setVin(String(vehicleVin))
 
       // Check if checklist already completed
-      const { data: checklistData } = await supabase
+      const { data: checklistData } = await (supabase as any)
         .from('job_safety_checklists')
         .select('*')
         .eq('job_id', params.id)
         .single()
 
       if (checklistData) {
-        // Already completed - redirect to diagnosis
         router.push(`/mechanic/job/${params.id}/diagnosis`)
+        return
+      }
+
+      // Load existing walk-around attachments (S-05)
+      const { data: attachments } = await (supabase as any)
+        .from('job_attachments')
+        .select('file_path')
+        .eq('job_id', params.id)
+      const walkaround = (attachments || []).filter((a: { file_path: string }) =>
+        a.file_path?.includes('walkaround')
+      )
+      if (walkaround.length > 0) {
+        setWalkAroundFiles(
+          walkaround.map((a: { file_path: string }) => ({
+            path: a.file_path,
+            url: supabase.storage.from('job-attachments').getPublicUrl(a.file_path).data.publicUrl,
+          }))
+        )
       }
     } catch (err) {
       console.error('Error loading job:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleWalkAroundFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files?.length || !user || !params.id) return
+    setUploadingWalkAround(true)
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const result = await uploadJobAttachment({
+          jobId: params.id,
+          userId: user.id,
+          file,
+          area: 'walkaround',
+        })
+        if (result.path) {
+          await createJobAttachmentRecord({
+            jobId: params.id,
+            uploadedBy: user.id,
+            filePath: result.path,
+            fileType: file.type,
+            fileSizeBytes: file.size,
+          })
+          setWalkAroundFiles((prev) => [...prev, { path: result.path!, url: result.url }])
+        }
+      }
+    } catch (err) {
+      console.error('Walk-around upload error:', err)
+      alert('Upload failed. Try again.')
+    } finally {
+      setUploadingWalkAround(false)
+      e.target.value = ''
     }
   }
 
@@ -90,7 +165,7 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
 
     try {
       // Save checklist
-      const { error: checklistError } = await supabase
+      const { error: checklistError } = await (supabase as any)
         .from('job_safety_checklists')
         .insert({
           job_id: params.id,
@@ -105,7 +180,7 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
 
       // Update job with VIN if not already set
       if (!job.vehicle_vin) {
-        await supabase
+        await (supabase as any)
           .from('jobs')
           .update({ vehicle_vin: vin })
           .eq('id', params.id)
@@ -114,15 +189,26 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
       // Proceed to diagnosis (Step 5)
       router.push(`/mechanic/job/${params.id}/diagnosis`)
     } catch (err: any) {
-      alert(`Error saving checklist: ${err.message}`)
+      const msg = err?.message || String(err)
+      const code = err?.code || err?.status
+      const details = err?.details || err?.hint || ''
+      console.error('Safety checklist save error:', { message: msg, code, details, full: err })
+      alert(`Error saving checklist: ${msg}${code ? ` (${code})` : ''}${details ? ` — ${details}` : ''}. If 403/RLS: run migration 00008. If 401: log in again.`)
     } finally {
       setSubmitting(false)
     }
   }
 
-  const canProceed = safeEnvironment === true && notBlockingJob === true && vin.length === 17
+  // S-05 HARD: Walk-around required before safety checklist can be completed
+  const hasWalkAround = walkAroundFiles.length >= 1
+  const isDev = process.env.NODE_ENV === 'development'
+  const canProceed =
+    (hasWalkAround || (isDev && devSkipWalkAround)) &&
+    safeEnvironment === true &&
+    notBlockingJob === true &&
+    vin.length === 17
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -156,13 +242,61 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
               <div>
                 <h3 className="font-semibold text-red-900 mb-1">MANDATORY SAFETY CHECKLIST</h3>
                 <p className="text-sm text-red-800">
-                  You must complete ALL questions before proceeding. This checklist cannot be skipped.
+                  You must complete ALL steps (including walk-around) before proceeding. This checklist cannot be skipped.
                 </p>
               </div>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Step 0: Walk-around (S-05 HARD) */}
+            <div className="bg-white rounded-lg shadow-md p-6 border-2 border-amber-500">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                0. Walk-around — vehicle condition before work <span className="text-red-600">(S-05 Required)</span>
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Record a short video or take photos of the vehicle condition before any work. Required before you can continue.
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                capture="environment"
+                multiple
+                onChange={handleWalkAroundFile}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingWalkAround}
+                className="w-full py-3 px-4 rounded-lg border-2 border-dashed border-gray-400 hover:border-cityfleet-gold bg-gray-50 text-gray-700 font-medium disabled:opacity-50"
+              >
+                {uploadingWalkAround ? 'Uploading...' : '📷 Record video or take photos'}
+              </button>
+              {walkAroundFiles.length > 0 && (
+                <p className="mt-3 text-sm text-green-700 font-medium">
+                  ✓ {walkAroundFiles.length} file(s) uploaded. You can add more or continue below.
+                </p>
+              )}
+              {!hasWalkAround && (
+                <p className="mt-2 text-sm text-red-600">At least one video or photo is required (S-05).</p>
+              )}
+              {isDev && (
+                <div className="mt-4 pt-4 border-t border-amber-200">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={devSkipWalkAround}
+                      onChange={(e) => setDevSkipWalkAround(e.target.checked)}
+                      className="rounded border-amber-600"
+                    />
+                    <span className="text-sm font-medium text-amber-900">Skip walk-around for testing (dev only)</span>
+                  </label>
+                </div>
+              )}
+            </div>
+
             {/* Question 1: Safe Environment (S-02) */}
             <div className="bg-white rounded-lg shadow-md p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -235,17 +369,26 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
               )}
             </div>
 
-            {/* Question 3: VIN Entry (S-04) */}
+            {/* Question 3: VIN Entry (S-04) — OCR from photo or manual */}
             <div className="bg-white rounded-lg shadow-md p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
                 3. Enter Vehicle VIN Number
               </h3>
+              <input ref={vinPhotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleVINPhoto} />
+              <button
+                type="button"
+                onClick={() => vinPhotoRef.current?.click()}
+                disabled={vinScanning}
+                className="mb-3 w-full py-2 rounded-lg border-2 border-dashed border-gray-300 text-sm text-gray-600 hover:border-cityfleet-gold disabled:opacity-50"
+              >
+                {vinScanning ? '⏳ Scanning photo…' : '📷 Scan VIN from photo (OCR)'}
+              </button>
               <input
                 type="text"
                 value={vin}
                 onChange={(e) => setVin(e.target.value.toUpperCase())}
                 maxLength={17}
-                placeholder="Enter 17-character VIN"
+                placeholder="Or enter 17-character VIN manually"
                 className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-cityfleet-gold focus:outline-none font-mono text-lg"
               />
               <div className="mt-2 flex items-center justify-between text-sm">
@@ -257,7 +400,7 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
                 )}
               </div>
               <p className="mt-3 text-xs text-gray-500">
-                VIN can be found on the vehicle dashboard, driver's door jamb, or vehicle documents.
+                Use photo to scan VIN (OCR) or type manually if scan fails. VIN is on dashboard, door jamb, or documents.
               </p>
             </div>
 
@@ -276,7 +419,9 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
               </button>
               {!canProceed && (
                 <p className="mt-3 text-sm text-center text-gray-600">
-                  Please answer all questions with YES and enter valid VIN to continue
+                  {!hasWalkAround
+                    ? 'Upload at least one walk-around video or photo (S-05), then complete all questions with YES and enter valid VIN.'
+                    : 'Please answer all questions with YES and enter valid VIN to continue'}
                 </p>
               )}
             </div>

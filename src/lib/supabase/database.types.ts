@@ -278,7 +278,7 @@ export interface JobWithVehicle extends Job {
   customer?: Customer
 }
 
-export interface Mechanicuser extends User {
+export interface MechanicProfile extends User {
   roles: UserRoleRecord[]
   site?: Site
 }

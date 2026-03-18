@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import ProtectedRoute from '@/components/protected-route'
 
@@ -28,10 +28,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [starting, setStarting] = useState(false)
   const [activeJob, setActiveJob] = useState<any>(null)
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = createClient()
 
   useEffect(() => {
     loadJobDetails()
@@ -44,24 +41,27 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         .from('jobs')
         .select(`
           *,
-          customer:customers(name)
+          customer:customers(name),
+          vehicle:vehicles(registration_number)
         `)
         .eq('id', params.id)
         .single()
 
       if (error) throw error
 
+      const vehicleIdentifier = data.vehicle?.registration_number ?? data.vehicle_id ?? ''
       setJob({
         ...data,
-        customer_name: data.customer?.name || 'Unknown'
+        customer_name: data.customer?.name || 'Unknown',
+        vehicle_identifier: vehicleIdentifier
       })
 
       // Load all jobs for this vehicle
-      if (data.vehicle_identifier) {
+      if (data.vehicle_id) {
         const { data: allJobs } = await supabase
           .from('jobs')
           .select('id, job_number, status, description')
-          .eq('vehicle_identifier', data.vehicle_identifier)
+          .eq('vehicle_id', data.vehicle_id)
           .neq('id', params.id)
           .order('created_at', { ascending: false })
           .limit(5)
@@ -85,7 +85,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         .from('time_entries')
         .select(`
           *,
-          job:jobs(job_number, vehicle_identifier)
+          job:jobs(job_number, vehicle:vehicles(registration_number))
         `)
         .eq('mechanic_id', user.id)
         .is('end_time', null)
@@ -108,7 +108,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     // L-02 HARD GATE: Check for active job
     if (activeJob && activeJob.job_id !== job.id) {
       const proceed = confirm(
-        `You already have an active job (Job #${activeJob.job.job_number} - ${activeJob.job.vehicle_identifier}).\n\n` +
+        `You already have an active job (Job #${activeJob.job.job_number} - ${activeJob.job.vehicle?.registration_number ?? 'vehicle'}).\n\n` +
         `You must pause or complete that job before starting this one.\n\n` +
         `Would you like to go to that job now?`
       )
@@ -127,7 +127,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         .from('time_entries')
         .insert({
           job_id: job.id,
-          mechanic_id: user.id,
+          mechanic_id: user?.id,
           start_time: new Date().toISOString()
         })
 
@@ -150,7 +150,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     }
   }
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -178,7 +178,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   }
 
   const isActive = activeJob?.job_id === job.id
-  const canStart = job.status === 'assigned' || job.status === 'in_progress'
+  // approved = assigned to mechanic (ready to start); in_progress = already started
+  const canStart = job.status === 'approved' || job.status === 'in_progress'
 
   return (
     <ProtectedRoute allowedRoles={['mechanic']}>
@@ -211,7 +212,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <div className="flex-1">
                   <h3 className="font-semibold text-red-900 mb-1">You Have an Active Job</h3>
                   <p className="text-sm text-red-800">
-                    Job #{activeJob.job.job_number} ({activeJob.job.vehicle_identifier}) is currently active. 
+                    Job #{activeJob.job.job_number} ({activeJob.job.vehicle?.registration_number ?? 'active'}) is currently active. 
                     You must pause or complete it before starting this job.
                   </p>
                   <button

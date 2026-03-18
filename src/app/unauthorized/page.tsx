@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function UnauthorizedPage() {
-  const { user, signOut } = useAuth()
+  const { profile, signOut } = useAuth()
+  const { user } = useAuth()
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -32,11 +33,11 @@ export default function UnauthorizedPage() {
 
           <p className="text-gray-600 mb-6">
             You don't have permission to access this page.
-            {user && (
+            {profile && (
               <>
                 <br />
                 <span className="text-sm">
-                  Your role: <strong className="text-cityfleet-navy capitalize">{user.role.replace('_', ' ')}</strong>
+                  Your role: <strong className="text-cityfleet-navy capitalize">{user?.role?.replace('_', ' ') || 'unknown'}</strong>
                 </span>
               </>
             )}

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 
 export default function LoginPage() {
@@ -9,8 +9,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [expiredMessage, setExpiredMessage] = useState<string | null>(null)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { login } = useAuth()
+
+  useEffect(() => {
+    if (searchParams.get('expired') === '1') {
+      setExpiredMessage('Your session expired. Please sign in again.')
+    }
+  }, [searchParams])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -18,9 +26,12 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      await login(email, password)
-      // Redirect to appropriate dashboard based on role
-      router.push('/dashboard')
+      const result = await login(email, password)
+      if (result.success) {
+        router.push('/dashboard')
+      } else {
+        setError(result.error || 'Login failed. Please check your credentials.')
+      }
     } catch (err: any) {
       setError(err.message || 'Login failed. Please check your credentials.')
     } finally {
@@ -57,6 +68,11 @@ export default function LoginPage() {
 
           {/* Login Card */}
           <div className="bg-white rounded-lg shadow-xl p-8">
+            {expiredMessage && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md">
+                <p className="text-sm text-amber-800">{expiredMessage}</p>
+              </div>
+            )}
             {error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
                 <p className="text-sm text-red-600">{error}</p>

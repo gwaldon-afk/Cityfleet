@@ -6,30 +6,33 @@ import { useAuth } from '@/contexts/AuthContext'
 import ProtectedRoute from '@/components/protected-route'
 
 export default function DashboardPage() {
-  const { profile, loading } = useAuth()
+  const { user, role, isLoading } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
-    if (!loading && profile) {
-      // Route to appropriate dashboard based on role
-      switch (user.role) {
-        case 'mechanic':
-          router.push('/mechanic/jobs')
-          break
-        case 'workshop_manager':
-          router.push('/manager/dashboard')
-          break
-        case 'ops_manager':
-          router.push('/ops/dashboard')
-          break
-        case 'administrator':
-          router.push('/admin/users')
-          break
-        default:
-          router.push('/login')
-      }
+    if (isLoading) return
+    if (!user) {
+      router.push('/login')
+      return
     }
-  }, [profile, loading, router])
+    // Route to appropriate dashboard based on role (from user_roles in Supabase)
+    switch (role) {
+      case 'mechanic':
+        router.push('/mechanic/jobs')
+        break
+      case 'workshop_manager':
+        router.push('/manager/dashboard')
+        break
+      case 'ops_manager':
+        router.push('/ops/dashboard')
+        break
+      case 'administrator':
+        router.push('/admin/users')
+        break
+      default:
+        router.push('/login')
+    }
+  }, [user, role, isLoading, router])
 
   return (
     <ProtectedRoute>

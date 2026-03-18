@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useParams } from 'next/navigation'
 
 // ─── MOCK DATA ─────────────────────────────────────────────────────────────
 const MOCK_JOB = {
@@ -32,6 +33,8 @@ const PAUSE_REASONS = [
 ]
 
 export default function JobProgressScreen() {
+  const params = useParams()
+  const jobId = params?.id as string
   const [jobStartTime] = useState(() => new Date(Date.now() - 2 * 60 * 60 * 1000)) // started 2hrs ago
   const [elapsed, setElapsed] = useState(0)
   const [isPaused, setIsPaused] = useState(false)
@@ -283,7 +286,7 @@ export default function JobProgressScreen() {
             </button>
           )}
           <a
-            href="/mechanic/test-drive"
+            href={jobId ? `/mechanic/job/${jobId}/test` : '/mechanic/jobs'}
             className="flex-1 py-3 rounded-lg text-white font-bold text-sm text-center"
             style={{ backgroundColor: '#B8860B' }}
           >

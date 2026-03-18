@@ -15,7 +15,7 @@ export function useShift() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function clockOn(): Promise<{ success: boolean; shift?: Shift; error?: string }> {
+  async function clockOn(fitForWorkDeclaration?: Record<string, unknown>): Promise<{ success: boolean; shift?: Shift; error?: string }> {
     if (!user || !site) return { success: false, error: 'Not authenticated' }
     if (activeShift) return { success: false, error: 'Already clocked on' }
 
@@ -24,13 +24,13 @@ export function useShift() {
       setError(null)
       const supabase = createClient()
 
-      const { data, error: insertError } = await supabase
+      const { data, error: insertError } = await (supabase as any)
         .from('shifts')
         .insert({
-          user_id: user.id,
+          mechanic_id: user.id,
           site_id: site.id,
-          clock_on: new Date().toISOString(),
-          status: 'active',
+          clock_on_at: new Date().toISOString(),
+          fit_for_work_declaration: fitForWorkDeclaration ?? null,
         })
         .select()
         .single()
@@ -55,21 +55,20 @@ export function useShift() {
       setError(null)
       const supabase = createClient()
 
-      // L-03 AUTO: Pause any active time entry
-      await supabase
+      // L-03 AUTO: Pause any active time entry (end_time null = active)
+      await (supabase as any)
         .from('time_entries')
         .update({
-          status: 'paused',
           end_time: new Date().toISOString(),
-          pause_reason: 'End of Shift',
+          pause_reason_code: 'End of Shift',
         })
         .eq('mechanic_id', user.id)
-        .eq('status', 'active')
+        .is('end_time', null)
 
-      // Close the shift
-      const { error: updateError } = await supabase
+      // Close the shift (set clock_off_at; active = clock_off_at is null)
+      const { error: updateError } = await (supabase as any)
         .from('shifts')
-        .update({ clock_off: new Date().toISOString(), status: 'completed' })
+        .update({ clock_off_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq('id', activeShift.id)
 
       if (updateError) throw updateError
@@ -86,7 +85,9 @@ export function useShift() {
 
   function getShiftDuration(): number {
     if (!activeShift) return 0
-    return Math.floor((Date.now() - new Date(activeShift.clock_on).getTime()) / 1000)
+    const clockOn = (activeShift as any).clock_on_at ?? (activeShift as any).clock_on
+    if (!clockOn) return 0
+    return Math.floor((Date.now() - new Date(clockOn).getTime()) / 1000)
   }
 
   return {

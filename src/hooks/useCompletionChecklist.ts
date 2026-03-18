@@ -10,6 +10,8 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import type { JobCompletionChecklist, JobNote } from '@/lib/supabase/database.types'
 
+type InsertJobCompletionChecklist = Omit<JobCompletionChecklist, 'id' | 'created_at'>
+
 export function useCompletionChecklist(jobId: string) {
   const { user } = useAuth()
   const [checklist, setChecklist] = useState<JobCompletionChecklist | null>(null)
@@ -54,16 +56,23 @@ export function useCompletionChecklist(jobId: string) {
       setError(null)
       const supabase = createClient()
 
-      const { data, error: insertError } = await supabase
+      // Table may not be in generated DB types (Supabase client 2.99 strict typing)
+      const payload: InsertJobCompletionChecklist = {
+        job_id: jobId,
+        mechanic_id: user.id,
+        vehicle_clean: params.vehicleClean,
+        workplace_clean: params.workplaceClean,
+        tools_returned: params.toolsReturned,
+        equipment_returned: params.equipmentReturned,
+        trash_removed: params.trashRemoved,
+        service_sticker_applied: params.serviceStickerApplied,
+        completed_at: new Date().toISOString(),
+      }
+      const { data, error: insertError } = await (supabase as any)
         .from('job_completion_checklists')
-        .insert({
-          job_id: jobId, mechanic_id: user.id,
-          vehicle_clean: params.vehicleClean, workplace_clean: params.workplaceClean,
-          tools_returned: params.toolsReturned, equipment_returned: params.equipmentReturned,
-          trash_removed: params.trashRemoved, service_sticker_applied: params.serviceStickerApplied,
-          completed_at: new Date().toISOString(),
-        })
-        .select().single()
+        .insert(payload)
+        .select()
+        .single()
 
       if (insertError) throw insertError
       setChecklist(data)
@@ -84,11 +93,13 @@ export function useCompletionChecklist(jobId: string) {
 
     try {
       const supabase = createClient()
-      const { error: insertError } = await supabase
+      const { error: insertError } = await (supabase as any)
         .from('job_notes')
         .insert({
-          job_id: jobId, user_id: user.id, note_type: params.noteType,
-          content: params.content, original_content: params.originalContent || null,
+          job_id: jobId,
+          created_by: user.id,
+          note_type: params.noteType ?? 'text',
+          content: params.content,
         })
 
       if (insertError) throw insertError

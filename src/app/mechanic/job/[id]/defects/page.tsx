@@ -1,49 +1,36 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams } from 'next/navigation'
-
-// ─── MOCK DATA ──────────────────────────────────────────────────────────────
-const MOCK_JOB = {
-  id: 'job-4822',
-  job_number: 'JOB-4822',
-  vehicle_id: 'VIN: 6T1BF3EK5CU123456',
-  vehicle_name: 'Volvo FH16 — Fleet #V-114',
-}
-
-// ─── TYPES ──────────────────────────────────────────────────────────────────
-interface Defect {
-  id: string
-  description: string
-  severity: 'RED' | 'ORANGE'
-  category: string
-  photos: string[]
-  timestamp: Date
-}
+import { useAuth } from '@/contexts/AuthContext'
+import { useDefects } from '@/hooks/useDefects'
+import { uploadBase64JobAttachment, createJobAttachmentRecord } from '@/lib/supabase/storage'
 
 const DEFECT_CATEGORIES = [
-  'Brakes',
-  'Steering',
-  'Suspension',
-  'Lights / Electrical',
-  'Tyres',
-  'Body Damage',
-  'Interior',
-  'Fluids / Leaks',
-  'Exhaust / Emissions',
-  'Other',
+  'Brakes', 'Steering', 'Suspension', 'Lights / Electrical', 'Tyres',
+  'Body Damage', 'Interior', 'Fluids / Leaks', 'Exhaust / Emissions', 'Other',
 ]
 
 export default function DefectCaptureScreen() {
   const params = useParams()
   const jobId = params.id as string
+  const { user } = useAuth()
+  const {
+    defects,
+    loading: defectsLoading,
+    error: defectsError,
+    addDefect: addDefectToApi,
+    submitDefects,
+    loadDefects,
+  } = useDefects(jobId)
 
-  const [defects, setDefects] = useState<Defect[]>([])
+  const [jobNumber, setJobNumber] = useState<string>('')
   const [description, setDescription] = useState('')
   const [severity, setSeverity] = useState<'RED' | 'ORANGE' | ''>('')
   const [category, setCategory] = useState('')
   const [photos, setPhotos] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [addingDefect, setAddingDefect] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [showForm, setShowForm] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -54,48 +41,86 @@ export default function DefectCaptureScreen() {
     Array.from(files).forEach((file) => {
       const reader = new FileReader()
       reader.onload = (ev) => {
-        if (ev.target?.result) {
-          setPhotos((prev) => [...prev, ev.target!.result as string])
-        }
+        if (ev.target?.result) setPhotos((prev) => [...prev, ev.target!.result as string])
       }
       reader.readAsDataURL(file)
     })
+    e.target.value = ''
   }
 
-  const addDefect = () => {
-    if (!description.trim() || !severity || !category || photos.length === 0) return
-    const defect: Defect = {
-      id: `defect-${Date.now()}`,
-      description: description.trim(),
-      severity: severity as 'RED' | 'ORANGE',
-      category,
-      photos: [...photos],
-      timestamp: new Date(),
+  const addDefect = async () => {
+    if (!description.trim() || !severity || !category || photos.length === 0 || !user) return
+    setAddingDefect(true)
+    try {
+      const evidenceUrls: string[] = []
+      for (let i = 0; i < photos.length; i++) {
+        const result = await uploadBase64JobAttachment({
+          jobId,
+          userId: user.id,
+          dataUrl: photos[i],
+          area: 'defects',
+          category: `defect-${Date.now()}`,
+        })
+        if (result.path) {
+          await createJobAttachmentRecord({
+            jobId,
+            uploadedBy: user.id,
+            filePath: result.path,
+            fileType: 'image/jpeg',
+          })
+          evidenceUrls.push(result.url)
+        }
+      }
+      if (evidenceUrls.length === 0) {
+        alert('Upload failed. Try again.')
+        return
+      }
+      const { success, error } = await addDefectToApi({
+        description: description.trim(),
+        severity: severity as 'RED' | 'ORANGE',
+        category,
+        evidenceUrls,
+      })
+      if (success) {
+        setDescription('')
+        setSeverity('')
+        setCategory('')
+        setPhotos([])
+        setShowForm(false)
+      } else {
+        alert(error || 'Failed to add defect')
+      }
+    } catch (err) {
+      alert('Failed to upload evidence or add defect.')
+    } finally {
+      setAddingDefect(false)
     }
-    setDefects((prev) => [...prev, defect])
-    setDescription('')
-    setSeverity('')
-    setCategory('')
-    setPhotos([])
-    setShowForm(false)
   }
 
-  const removeDefect = (id: string) => {
-    setDefects((prev) => prev.filter((d) => d.id !== id))
-  }
-
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (defects.length === 0) return
     setIsSubmitting(true)
-    // TODO: Save to Supabase job_defects table + notify Workshop Manager
-    setTimeout(() => {
+    try {
+      const { success, error } = await submitDefects()
+      if (success) setSubmitted(true)
+      else alert(error || 'Submit failed')
+    } finally {
       setIsSubmitting(false)
-      setSubmitted(true)
-    }, 1000)
+    }
   }
 
   const redCount = defects.filter((d) => d.severity === 'RED').length
   const orangeCount = defects.filter((d) => d.severity === 'ORANGE').length
+
+  // Load job number for header
+  useEffect(() => {
+    if (!jobId) return
+    const { createClient } = require('@/lib/supabase/client')
+    const supabase = createClient()
+    supabase.from('jobs').select('job_number').eq('id', jobId).single().then(({ data }: any) => {
+      if (data?.job_number) setJobNumber(data.job_number)
+    })
+  }, [jobId])
 
   // ─── SUBMITTED STATE ──────────────────────────────────────────────────────
   if (submitted) {
@@ -105,7 +130,7 @@ export default function DefectCaptureScreen() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs opacity-80">CITY FLEET</p>
-              <p className="font-bold text-sm">{MOCK_JOB.job_number}</p>
+              <p className="font-bold text-sm">{jobNumber || `Job ${jobId.slice(0, 8)}`}</p>
             </div>
             <span className="text-xs bg-blue-900/50 px-2 py-1 rounded">STEP 6 — DEFECTS</span>
           </div>
@@ -146,12 +171,9 @@ export default function DefectCaptureScreen() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs opacity-80">CITY FLEET</p>
-            <p className="font-bold text-sm">{MOCK_JOB.job_number}</p>
+            <p className="font-bold text-sm">{jobNumber || `Job ${jobId?.slice(0, 8)}...`}</p>
           </div>
           <span className="text-xs bg-blue-900/50 px-2 py-1 rounded">STEP 6 — DEFECTS</span>
-        </div>
-        <div className="mt-2 text-xs opacity-80">
-          {MOCK_JOB.vehicle_name} • {MOCK_JOB.vehicle_id}
         </div>
       </div>
 
@@ -199,12 +221,10 @@ export default function DefectCaptureScreen() {
                   }`}>
                     {d.severity === 'RED' ? '🔴 SAFETY' : '🟠 NON-SAFETY'}
                   </span>
-                  <span className="text-xs text-gray-500">{d.category}</span>
                 </div>
                 <p className="text-sm text-gray-800">{d.description}</p>
-                <p className="text-xs text-gray-400 mt-1">{d.photos.length} photo(s) attached</p>
+                <p className="text-xs text-gray-400 mt-1">{(d.evidence_urls?.length ?? 0)} photo(s) attached</p>
               </div>
-              <button onClick={() => removeDefect(d.id)} className="text-red-400 text-sm ml-2">✕</button>
             </div>
           </div>
         ))}
@@ -316,10 +336,10 @@ export default function DefectCaptureScreen() {
 
             <button
               onClick={addDefect}
-              disabled={!description.trim() || !severity || !category || photos.length === 0}
+              disabled={addingDefect || !description.trim() || !severity || !category || photos.length === 0}
               className="w-full py-2 rounded-lg text-white font-semibold text-sm disabled:opacity-40 transition-colors bg-cityfleet-navy disabled:bg-gray-400"
             >
-              + ADD DEFECT
+              {addingDefect ? 'UPLOADING & ADDING...' : '+ ADD DEFECT'}
             </button>
           </div>
         ) : (

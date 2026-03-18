@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useParams } from 'next/navigation'
 
 // ─── MOCK DATA ─────────────────────────────────────────────────────────────
 const MOCK_JOB = {
@@ -16,6 +17,8 @@ const MOCK_JOB = {
 type ApprovalStatus = 'pending' | 'approved' | 'returned'
 
 export default function AwaitingApprovalScreen() {
+  const params = useParams()
+  const jobId = params?.id as string
   const [status, setStatus] = useState<ApprovalStatus>('pending')
   const [waitTime, setWaitTime] = useState('')
   const [returnNotes, setReturnNotes] = useState('')
@@ -69,7 +72,7 @@ export default function AwaitingApprovalScreen() {
             Proceed to final sign-off to close this job.
           </p>
           <a
-            href="/mechanic/final-signoff"
+            href={jobId ? `/mechanic/job/${jobId}/signoff` : '/mechanic/jobs'}
             className="block w-full py-3 rounded-lg text-white font-bold text-lg text-center"
             style={{ backgroundColor: '#B8860B' }}
           >
@@ -106,7 +109,7 @@ export default function AwaitingApprovalScreen() {
             Address the issues above and re-submit your completion checklist.
           </p>
           <a
-            href="/mechanic/completion"
+            href={jobId ? `/mechanic/job/${jobId}/complete/completion` : '/mechanic/jobs'}
             className="block w-full py-3 rounded-lg text-white font-bold text-lg text-center"
             style={{ backgroundColor: '#B8860B' }}
           >

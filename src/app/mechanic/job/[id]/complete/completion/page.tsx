@@ -1,14 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-
-// ─── MOCK DATA ─────────────────────────────────────────────────────────────
-const MOCK_JOB = {
-  id: 'job-4822',
-  job_number: 'JOB-4822',
-  vehicle_id: 'VIN: 6T1BF3EK5CU123456',
-  vehicle_name: 'Volvo FH16 — Fleet #V-114',
-}
+import { useParams } from 'next/navigation'
+import { useAuth } from '@/contexts/AuthContext'
+import { createClient } from '@/lib/supabase/client'
+import Link from 'next/link'
 
 const CHECKLIST_ITEMS = [
   { id: 'clean', label: 'Vehicle is clean and tidy — no grease marks, no debris', control: 'Q-02' },
@@ -20,6 +16,9 @@ const CHECKLIST_ITEMS = [
 ]
 
 export default function CompletionScreen() {
+  const params = useParams()
+  const jobId = params.id as string
+  const { user } = useAuth()
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({})
   const [jobNotes, setJobNotes] = useState('')
   const [isRecording, setIsRecording] = useState(false)
@@ -27,6 +26,7 @@ export default function CompletionScreen() {
   const [useVoice, setUseVoice] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const allChecked = CHECKLIST_ITEMS.every((item) => checkedItems[item.id])
   const hasNotes = jobNotes.trim().length > 0 || voiceTranscript.trim().length > 0
@@ -65,14 +65,37 @@ export default function CompletionScreen() {
     }, 60000)
   }
 
-  const handleSubmit = () => {
-    if (!allChecked || !hasNotes) return
+  const handleSubmit = async () => {
+    if (!allChecked || !hasNotes || !user || !jobId) return
     setIsSubmitting(true)
-    // TODO: Save to Supabase — job_notes + completion_checklist
-    setTimeout(() => {
-      setIsSubmitting(false)
+    setSubmitError(null)
+    try {
+      const supabase = createClient()
+      const insertNote = async (content: string, noteType: 'text' | 'voice') => {
+        const row: Record<string, unknown> = {
+          job_id: jobId,
+          created_by: user.id,
+          content,
+        }
+        try {
+          await (supabase as any).from('job_notes').insert({ ...row, note_type: noteType })
+        } catch {
+          await (supabase as any).from('job_notes').insert(row)
+        }
+      }
+      if (jobNotes.trim()) await insertNote(jobNotes.trim(), 'text')
+      if (voiceTranscript.trim()) await insertNote(voiceTranscript.trim(), 'voice')
+      const { error: jobError } = await (supabase as any)
+        .from('jobs')
+        .update({ status: 'ready_for_review', updated_at: new Date().toISOString() })
+        .eq('id', jobId)
+      if (jobError) throw jobError
       setSubmitted(true)
-    }, 1000)
+    } catch (err: any) {
+      setSubmitError(err.message || 'Failed to submit')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   if (submitted) {
@@ -82,7 +105,7 @@ export default function CompletionScreen() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs opacity-80">CITY FLEET</p>
-              <p className="font-bold text-sm">{MOCK_JOB.job_number}</p>
+              <p className="font-bold text-sm">Job</p>
             </div>
             <span className="text-xs bg-blue-900/50 px-2 py-1 rounded">STEP 12 — COMPLETE</span>
           </div>
@@ -92,18 +115,17 @@ export default function CompletionScreen() {
             <span className="text-3xl">✅</span>
           </div>
           <h2 className="text-xl font-bold text-gray-800 mb-2">Completion Submitted</h2>
-          <p className="text-gray-600 mb-1">Checklist complete. Notes recorded.</p>
+          <p className="text-gray-600 mb-1">Checklist complete. Notes recorded (text and/or voice).</p>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 my-4">
             <p className="text-sm text-blue-800 font-semibold">Workshop Manager has been notified</p>
-            <p className="text-xs text-blue-600 mt-1">Your job is now &quot;Ready for Review&quot;. Wait for manager two-hand-touch approval.</p>
+            <p className="text-xs text-blue-600 mt-1">Your job is now &quot;Ready for Review&quot;. Wait for manager two-hand-touch approval (A-03).</p>
           </div>
-          <a
-            href="/mechanic/awaiting-approval"
-            className="block w-full py-3 rounded-lg text-white font-bold text-lg text-center"
-            style={{ backgroundColor: '#B8860B' }}
+          <Link
+            href={`/mechanic/job/${jobId}/awaiting`}
+            className="block w-full py-3 rounded-lg text-white font-bold text-lg text-center bg-cityfleet-gold"
           >
             VIEW APPROVAL STATUS →
-          </a>
+          </Link>
         </div>
       </div>
     )
@@ -116,14 +138,17 @@ export default function CompletionScreen() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs opacity-80">CITY FLEET</p>
-            <p className="font-bold text-sm">{MOCK_JOB.job_number}</p>
+            <p className="font-bold text-sm">Job completion</p>
           </div>
           <span className="text-xs bg-blue-900/50 px-2 py-1 rounded">STEP 12 — COMPLETE</span>
         </div>
-        <div className="mt-2 text-xs opacity-80">
-          {MOCK_JOB.vehicle_name} • {MOCK_JOB.vehicle_id}
-        </div>
       </div>
+
+      {submitError && (
+        <div className="max-w-md mx-auto p-4">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm">{submitError}</div>
+        </div>
+      )}
 
       {/* Hard Gate */}
       <div className="bg-red-50 border-b border-red-200 px-4 py-2">

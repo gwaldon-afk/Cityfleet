@@ -1,0 +1,298 @@
+# City Fleet Workshop Manager App — Cursor Rules
+# This file is the authoritative system context for all AI-assisted development.
+# Read this before generating any code, component, screen, or query.
+
+---
+
+## 1. PROJECT IDENTITY
+
+- **App Name:** City Fleet Workshop Manager App
+- **Type:** Progressive Web App (PWA)
+- **Purpose:** Enterprise-grade, role-based workshop management system for multi-site fleet maintenance operations
+- **Stack:** Next.js · Supabase (Auth, Postgres, Storage) · Tailwind CSS · Vercel
+- **OCR:** Tesseract.js
+- **Source Control:** GitHub
+- **Local Path:** Gary - Personal > Documents > City Fleet > Cityfleet App
+
+---
+
+## 2. TECH STACK RULES
+
+- **Framework:** Next.js (App Router)
+- **Auth & DB:** Supabase — always use the Supabase client, never bypass RLS
+- **Styling:** Tailwind CSS only — no inline styles, no CSS modules unless absolutely necessary
+- **Language:** TypeScript throughout — no `any` types
+- **State:** React hooks (useState, useEffect, useContext) — no Redux
+- **Forms:** Controlled components — never use HTML `<form>` submit
+- **Images/Camera:** Native browser APIs + Tesseract.js for OCR
+- **Notifications:** Supabase Realtime or browser push API
+- **Deployment:** Vercel — ensure all env vars use `NEXT_PUBLIC_` prefix for client-side
+
+---
+
+## 3. BRAND & UI STANDARDS
+
+- **Primary colour:** Navy blue (`#1a2744`)
+- **Accent colour:** Gold (`#c9a84c`)
+- **Background:** Dark navy on mobile mechanic screens; white/light grey on desktop supervisor screens
+- **Font:** Clean, readable sans-serif — mechanic screens must be large-tap-target friendly
+- **Mobile-first:** All mechanic screens (M-01 to M-11) are mobile-first PWA screens
+- **Desktop-first:** All supervisor, OPS, and admin screens are desktop-first
+- **Buttons:** Large, high-contrast, full-width on mobile — never small tap targets for mechanics
+- **Hard gate screens:** Display a prominent RED banner/block when a control gate is enforced
+
+---
+
+## 4. USER ROLES & ROUTING
+
+There are four roles. Each role has its own protected route namespace.
+
+| Role | Route Prefix | Primary Interface |
+|---|---|---|
+| Mechanic | `/mechanic/` | Mobile PWA |
+| Workshop Manager | `/manager/` | Desktop |
+| OPS Manager | `/ops/` | Desktop |
+| Administrator | `/admin/` | Desktop |
+
+**Rules:**
+- After login, redirect each role to their dashboard immediately
+- Use Supabase Auth with role stored in `user_metadata` or a `profiles` table
+- Middleware must protect all role routes — a mechanic cannot access `/manager/`
+- Never expose supervisor or OPS data to mechanic screens
+
+---
+
+## 5. THE 16-STEP JOB LIFECYCLE (AUTHORITATIVE)
+
+This is the single source of truth for how every job progresses. Every screen maps to one or more of these steps.
+
+| Step | Activity | Role | Interface |
+|---|---|---|---|
+| 1 | Job raised, quote completed & sent to customer | Workshop Manager | Supervisor Desktop |
+| 2 | Customer PO / approval received | Workshop Manager | Supervisor Desktop |
+| 3 | Mechanic logs on to job | Mechanic | Mobile App |
+| 4 | Mandatory safety & readiness checklist (VIN, safe environment, not blocking faster job) | Mechanic | Mobile App |
+| 5 | Test vehicle & diagnose | Mechanic | Mobile App |
+| 6 | Log defects with evidence & severity (Red/Orange) | Mechanic | Mobile App |
+| 7 | Manager reviews defects & seeks customer approval | Workshop Manager | Supervisor Desktop |
+| 8 | Parts ordered for approved defects | Workshop Manager | Supervisor Desktop |
+| 9 | Additional job created for approved extra work | Workshop Manager | Supervisor Desktop |
+| 10 | Mechanic completes approved additional work | Mechanic | Mobile App |
+| 11 | Complete all works & test / test-drive | Mechanic | Mobile App |
+| 12 | Mechanic sign-off checklist & job notes (voice or text) | Mechanic | Mobile App |
+| 13 | Manager two-hand-touch review & approval | Workshop Manager | Supervisor Desktop |
+| 14 | Mechanic final sign-off | Mechanic | Mobile App |
+| 15 | OPS manager close-out & cost validation | OPS Manager | Supervisor Desktop |
+| 16 | Final approval, invoicing & vehicle release | OPS Manager / Admin | Supervisor Desktop |
+
+---
+
+## 6. MECHANIC SCREENS (M-01 to M-11)
+
+All mechanic screens are mobile-first PWA screens.
+
+| Screen | Purpose | Lifecycle Step |
+|---|---|---|
+| M-01 | Clock On / Off — Shift management | Pre-job |
+| M-02 | Job List View — View assigned jobs | Step 3 |
+| M-03 | Job Detail & Start — One active job enforced | Step 3 |
+| M-04 | Safety Checklist — Mandatory hard gate | Step 4 |
+| M-05 | Diagnosis Screen | Step 5 |
+| M-06 | Defect Capture — Photo/video + severity | Step 6 |
+| M-07 | Job In Progress / Pause with reason codes | Step 10 |
+| M-08 | Test Drive Confirmation | Step 11 |
+| M-09 | Completion Checklist + Voice/Text Notes | Step 12 |
+| M-10 | Awaiting Manager Approval (read-only wait state) | Step 13 |
+| M-11 | Final Sign-Off | Step 14 |
+
+---
+
+## 7. WORKSHOP MANAGER SCREENS (WM-01 to WM-06)
+
+All desktop-first.
+
+| Screen | Purpose | Lifecycle Step |
+|---|---|---|
+| WM-01 | Quote & PO Management | Steps 1–2 |
+| WM-02 | Real-Time Job Board (multi-vehicle view) | All |
+| WM-03 | Defect Review & Customer Approval | Step 7 |
+| WM-04 | Parts Ordering & Sourcing | Step 8 |
+| WM-05 | New Job Creation (extra work) | Step 9 |
+| WM-06 | Two-Hand-Touch Approval | Step 13 |
+
+---
+
+## 8. ADMINISTRATOR SCREENS (ADMIN-01 to ADMIN-06)
+
+| Screen | Purpose |
+|---|---|
+| ADMIN-01 | User Management |
+| ADMIN-02 | Site & Workshop Configuration |
+| ADMIN-03 | Customer Management (labour rates, parts margins) |
+| ADMIN-04 | Parts Catalogue & Supplier Management |
+| ADMIN-05 | System Configuration (work types, pause codes, defect categories) |
+| ADMIN-06 | Audit Logs & Compliance |
+
+---
+
+## 9. AUTHORITATIVE CONTROL MATRIX
+
+These controls are NON-NEGOTIABLE. Every relevant screen must enforce them exactly as specified. HARD = system blocks. AUTO = system enforces automatically. SOFT = warning only.
+
+### Labour Controls
+| ID | Rule | Gate |
+|---|---|---|
+| L-01 | Mechanic must be clocked on to perform work | HARD |
+| L-02 | Mechanic can only have ONE active job at any time | HARD |
+| L-03 | Clocking off auto-pauses any active job | AUTO |
+| L-04 | Time entries are immutable after job closure | HARD |
+| L-05 | Time entries are immutable after invoicing | HARD |
+
+### Safety Controls
+| ID | Rule | Gate |
+|---|---|---|
+| S-01 | Mandatory safety & readiness checklist before diagnosis | HARD |
+| S-02 | Safe work environment confirmation required | HARD |
+| S-03 | Confirmation that mechanic is not blocking a faster job | HARD |
+| S-04 | VIN entry mandatory before diagnosis can begin | HARD |
+| S-05 | Walk-around video or photos (vehicle condition before work) mandatory before safety checklist can be completed | HARD |
+
+### Diagnosis & Evidence Controls
+| ID | Rule | Gate |
+|---|---|---|
+| D-01 | Diagnosis required before repair can begin | HARD |
+| D-02 | Defects must be logged before job can continue | HARD |
+| D-03 | Defect evidence (photo or video) is mandatory per defect | HARD |
+| D-04 | Defect severity (Red = safety / Orange = non-safety) mandatory | HARD |
+
+### Quality Controls
+| ID | Rule | Gate |
+|---|---|---|
+| Q-01 | Mandatory test / test-drive confirmation | HARD |
+| Q-02 | Mechanic clean-down checklist mandatory | HARD |
+| Q-03 | Tools & equipment return confirmation | HARD |
+| Q-04 | Job notes required (voice or text) | HARD |
+
+### Approval Controls
+| ID | Rule | Gate |
+|---|---|---|
+| A-01 | Two-hand-touch manager approval required before job closes | HARD |
+| A-02 | Manager disclaimer auto-inserted (name + vehicle ID auto-filled) | AUTO |
+| A-03 | Mechanic CANNOT finalise job without manager approval | HARD |
+| A-04 | OPS close-out mandatory | HARD |
+| A-05 | OPS close-out second timer enforced | AUTO |
+
+### Commercial Controls
+| ID | Rule | Gate |
+|---|---|---|
+| C-01 | PO / customer approval required before any work commences | HARD |
+| C-02 | Job cannot be assigned or started without a PO | HARD |
+| C-03 | Extra work requires explicit customer approval | HARD |
+| C-04 | Approved extra work must be created as a NEW job | HARD |
+| C-05 | Job is the sole commercial billing unit | AUTO |
+
+### Billing Controls
+| ID | Rule | Gate |
+|---|---|---|
+| B-01 | Job cannot be invoiced without approvals | HARD |
+| B-02 | Cash sale must be paid before vehicle release | HARD |
+| B-03 | Account jobs must be invoiced before vehicle release | HARD |
+| B-04 | Vehicle cannot be released without confirmation | HARD |
+| B-05 | Invoices are job-based only (never vehicle-based) | AUTO |
+
+---
+
+## 10. CORE DATA MODEL
+
+### Key Entities & Rules
+
+**Job**
+- The sole commercial and billing unit
+- Must reference a PO or formal customer approval
+- Can have multiple mechanics contributing labour
+- Linked to one vehicle (vehicle can have multiple concurrent jobs)
+- One job = one invoice = one PO
+
+**Mechanic**
+- Can only have ONE active job at any point in time (enforced hard)
+- Must be clocked on (shift active) to record labour
+- Can work many jobs over time (many-to-many over time)
+
+**Vehicle**
+- Is context only — NOT the billing unit
+- Can have multiple jobs open concurrently
+- Identified by VIN / Fleet Number / Radio Number
+
+**Shift**
+- Represents mechanic's working period (clock-on to clock-off)
+- Clock-off auto-pauses active job
+
+**TimeEntry**
+- Always linked to: Mechanic + Job + Shift
+- Immutable once job is closed or invoiced
+
+**JobPart**
+- Parts lifecycle: Requested → Ordered → Received → Issued
+- Always linked to a job — never free-floating
+
+**Invoice**
+- Generated per job (never per vehicle)
+- Immutable once issued
+
+### Supabase Tables (already created)
+- `jobs`
+- `shifts`
+- `time_entries`
+- `job_safety_checklists`
+- `job_diagnoses`
+- `job_odometer_readings`
+- `job_approvals`
+- `profiles` (user roles)
+
+---
+
+## 11. COMPONENT LIBRARY (already built)
+
+These components exist and must be imported, not recreated:
+
+- `PhotoCapture.tsx` — General photo capture with OCR
+- `VINScanner.tsx` — Automatic VIN detection and validation
+- `OdometerScanner.tsx` — Mileage reading from odometer photos (Tesseract.js)
+
+---
+
+## 12. CODING STANDARDS
+
+- **Every HARD gate control must show a clear, prominent UI block** — red banner, disabled button with tooltip, or full-screen gate message. Never silently fail.
+- **No work-arounds for control gates** — do not add "skip" buttons, overrides, or dev bypasses in production code
+- **Supabase RLS** must be enabled on all tables — never query as service role from the client
+- **Error handling** — every Supabase query must have try/catch and user-facing error messages
+- **Loading states** — every async action needs a loading indicator
+- **Offline support** — mechanic screens should handle poor connectivity gracefully (queue actions locally if possible)
+- **TypeScript interfaces** — define a type/interface for every DB entity
+- **Comments** — add a comment referencing the Control ID (e.g., `// L-02: One active job enforced`) wherever a control is implemented
+
+---
+
+## 13. WHAT IS OUT OF SCOPE
+
+Never build or suggest:
+- Payroll processing
+- Full ERP replacement
+- Asset procurement systems
+- HR management
+- Customer SLA management
+- Any bypass of the Control Matrix gates
+
+---
+
+## 14. DESIGN PRINCIPLES (NON-NEGOTIABLE)
+
+> "If the job data is correct, all reporting, billing, and audit outcomes are correct."
+
+- Job = commercial unit. Vehicle = context. Never conflate them.
+- Extra work = new job = new PO. Always. No exceptions.
+- One mechanic = one active job at a time. Always.
+- No PO → no work. No approval → no extra work. No invoice/payment → no vehicle release.
+- AI output never overwrites original data (notes, photos, voice).
+- Closed and invoiced records are immutable.

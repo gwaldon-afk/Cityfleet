@@ -1,22 +1,21 @@
 'use client'
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CITY FLEET — Auth Context (backwards-compatible with old auth-context)
+// CITY FLEET — Auth Context
 // Location: src/contexts/AuthContext.tsx
+// Direct fetch with retry logic for flaky DNS
 // ═══════════════════════════════════════════════════════════════════════════
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { createClient } from '@/lib/supabase/client'
 
-// Export UserRole so other files can import it
 export type UserRole = 'mechanic' | 'workshop_manager' | 'ops_manager' | 'administrator'
 
 export interface User {
   id: string
   first_name: string
   last_name: string
-  name: string          // computed: "first_name last_name" for backwards compat
+  name: string
   email: string
-  role: UserRole | null // attached to user object for backwards compat
+  role: UserRole | null
   status: 'active' | 'inactive'
   created_at: string
 }
@@ -38,7 +37,6 @@ export interface Shift {
 }
 
 interface AuthState {
-  // New names
   user: User | null
   role: UserRole | null
   site: Site | null
@@ -48,8 +46,6 @@ interface AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
   refreshShift: () => Promise<void>
-
-  // Backwards-compatible aliases (old auth-context names)
   profile: User | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
@@ -57,6 +53,67 @@ interface AuthState {
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined)
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const SUPABASE_REF = SUPABASE_URL?.match(/https:\/\/(.+?)\.supabase\.co/)?.[1] || 'default'
+const STORAGE_KEY = `sb-${SUPABASE_REF}-auth-token`
+const MAX_RETRIES = 5
+const RETRY_DELAY = 800
+
+// Retry wrapper — keeps trying until DNS resolves
+async function fetchWithRetry(url: string, options?: RequestInit, retries = MAX_RETRIES): Promise<Response> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url, options)
+      return res
+    } catch (err: any) {
+      if (i === retries) throw err
+      console.log(`Fetch attempt ${i + 1} failed, retrying in ${RETRY_DELAY}ms...`)
+      await new Promise(r => setTimeout(r, RETRY_DELAY))
+    }
+  }
+  throw new Error('All fetch retries exhausted')
+}
+
+async function supabaseRestFetch(path: string, token: string) {
+  const url = `${SUPABASE_URL}/rest/v1/${path}`
+  const res = await fetchWithRetry(url, {
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${token}`,
+      'Prefer': 'return=representation',
+    },
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }))
+    const msg = err.message || err.msg || err.error_description || `Request failed: ${res.status}`
+    console.error('[Auth] REST failed:', { path, status: res.status, body: err })
+    throw new Error(msg)
+  }
+  return res.json()
+}
+
+function getStoredToken(): string | null {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (!stored) return null
+    return JSON.parse(stored)?.access_token || null
+  } catch {
+    return null
+  }
+}
+
+function getStoredUserId(): string | null {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (!stored) return null
+    return JSON.parse(stored)?.user?.id || null
+  } catch {
+    return null
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -66,62 +123,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const supabase = createClient()
-
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session?.user) {
-          await loadUserProfile(session.user.id)
-        } else {
-          setUser(null)
-          setRole(null)
-          setSite(null)
-          setActiveShift(null)
-          setIsLoading(false)
-        }
-      }
-    )
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        loadUserProfile(session.user.id)
-      } else {
-        setIsLoading(false)
-      }
-    })
-
-    return () => subscription.unsubscribe()
+    const userId = getStoredUserId()
+    const token = getStoredToken()
+    if (userId && token) {
+      loadUserProfile(userId, token)
+    } else {
+      setIsLoading(false)
+    }
   }, [])
 
-  async function loadUserProfile(authId: string) {
+  async function loadUserProfile(authId: string, token?: string) {
+    const accessToken = token || getStoredToken()
+    if (!accessToken) {
+      setIsLoading(false)
+      return
+    }
+
     try {
       setIsLoading(true)
       setError(null)
 
-      // 1. Get user record
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', authId)
-        .single()
+      let users: any[]
+      try {
+        users = await supabaseRestFetch(
+          `users?id=eq.${authId}&select=*&limit=1`,
+          accessToken
+        )
+      } catch (e: any) {
+        console.error('[Auth] Failed to load users:', e?.message, e)
+        setError(e?.message?.includes('querying schema') ? 'Profile load failed (users). Check Supabase logs and RLS.' : (e?.message || 'Failed to load user profile'))
+        return
+      }
+      if (!users || users.length === 0) {
+        setError('User not found in app (run seed: public.users must match auth user id).')
+        return
+      }
+      const userData = users[0]
 
-      if (userError) throw userError
-
-      // 2. Get primary role
-      const { data: roleData, error: roleError } = await supabase
-        .from('user_roles')
-        .select('*')
-        .eq('user_id', authId)
-        .limit(1)
-        .single()
-
-      if (roleError) throw roleError
+      let roles: any[]
+      try {
+        roles = await supabaseRestFetch(
+          `user_roles?user_id=eq.${authId}&select=*&limit=1`,
+          accessToken
+        )
+      } catch (e: any) {
+        console.error('[Auth] Failed to load user_roles:', e?.message, e)
+        setError(e?.message?.includes('querying schema') ? 'Profile load failed (user_roles). Check Supabase logs and RLS.' : (e?.message || 'Failed to load role'))
+        return
+      }
+      if (!roles || roles.length === 0) {
+        setError('Role not found (run seed: user_roles row for this user).')
+        return
+      }
+      const roleData = roles[0]
 
       const userRole = roleData.role as UserRole
       setRole(userRole)
 
-      // Build user with backwards-compatible fields
       const fullUser: User = {
         ...userData,
         name: `${userData.first_name} ${userData.last_name}`,
@@ -129,20 +188,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setUser(fullUser)
 
-      // 3. Get site
       if (roleData.site_id) {
-        const { data: siteData } = await supabase
-          .from('sites')
-          .select('*')
-          .eq('id', roleData.site_id)
-          .single()
-
-        if (siteData) setSite(siteData)
+        try {
+          const sites = await supabaseRestFetch(
+            `sites?id=eq.${roleData.site_id}&select=*&limit=1`,
+            accessToken
+          )
+          if (sites && sites.length > 0) setSite(sites[0])
+        } catch {
+          setSite(null)
+        }
       }
 
-      // 4. Check for active shift (mechanic only)
       if (userRole === 'mechanic') {
-        await loadActiveShift(authId)
+        await loadActiveShift(authId, accessToken)
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load user profile')
@@ -152,48 +211,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function loadActiveShift(userId: string) {
-    const { data: shiftData } = await supabase
-      .from('shifts')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .order('clock_on', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+async function loadActiveShift(userId: string, token?: string) {
+    const accessToken = token || getStoredToken()
+    if (!accessToken) return
 
-    setActiveShift(shiftData)
+    try {
+      const shifts = await supabaseRestFetch(
+        `shifts?mechanic_id=eq.${userId}&clock_off_at=is.null&order=clock_on_at.desc&limit=1`,
+        accessToken
+      )
+      setActiveShift(shifts && shifts.length > 0 ? shifts[0] : null)
+    } catch {
+      setActiveShift(null)
+    }
   }
-
-async function login(email: string, password: string) {
+  async function login(email: string, password: string) {
     try {
       setError(null)
-      const supabaseUrl = 'https://pepbvodjevgtlucvwhqm.supabase.co'
-      const supabaseKey = 'sb_publishable_rcIvumSIrwrClej5t5p8xQ_5PCtQFpb'
-      
-      // Direct fetch bypasses library DNS issues
-      const res = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+
+      const res = await fetchWithRetry(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apikey': supabaseKey!,
+          'apikey': SUPABASE_KEY,
         },
         body: JSON.stringify({ email, password }),
       })
-      
+
       const data = await res.json()
-      
+
       if (!res.ok) {
-        setError(data.msg || 'Login failed')
-        return { success: false, error: data.msg || 'Login failed' }
+        const authMsg = data.msg || data.message || data.error_description || 'Login failed'
+        console.error('[Auth] Token request failed (Supabase Auth 500). Full response:', res.status, JSON.stringify(data, null, 2))
+        setError(authMsg)
+        return { success: false, error: authMsg }
       }
-      
-      // Set the session in the Supabase client
-      await supabase.auth.setSession({
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
         access_token: data.access_token,
         refresh_token: data.refresh_token,
-      })
-      
+        expires_at: data.expires_at,
+        expires_in: data.expires_in,
+        token_type: data.token_type,
+        user: data.user,
+      }))
+
+      await loadUserProfile(data.user.id, data.access_token)
+
       return { success: true }
     } catch (err: any) {
       const msg = err.message || 'Login failed'
@@ -203,7 +267,7 @@ async function login(email: string, password: string) {
   }
 
   async function logout() {
-    await supabase.auth.signOut()
+    localStorage.removeItem(STORAGE_KEY)
     setUser(null)
     setRole(null)
     setSite(null)
@@ -217,10 +281,8 @@ async function login(email: string, password: string) {
   return (
     <AuthContext.Provider
       value={{
-        // New names
         user, role, site, isLoading, error, activeShift,
         login, logout, refreshShift,
-        // Backwards-compatible aliases
         profile: user,
         loading: isLoading,
         signIn: login,
