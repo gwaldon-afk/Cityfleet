@@ -3,7 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { Suspense } from 'react'
-import CreateJobPageContent from './CreateJobPageContent' './CreateJobPageContent'
+import CreateJobPageContent from './CreateJobPageContent'
 
 export default function CreateJobPage() {
   return (
