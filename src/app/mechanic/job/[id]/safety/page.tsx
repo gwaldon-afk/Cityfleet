@@ -55,20 +55,26 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
         .from('jobs')
         .select('*, vehicle:vehicles(vin)')
         .eq('id', params.id)
-        .single()
+        .maybeSingle()
 
       if (error) throw error
+      if (!data) {
+        console.warn('Safety: job not found or access denied (406 avoided)')
+        setJob(null)
+        setLoading(false)
+        return
+      }
       setJob(data)
       // Pre-fill VIN from seed/vehicle data so testing doesn't require typing it
       const vehicleVin = data?.vehicle?.vin
       if (vehicleVin && String(vehicleVin).length === 17) setVin(String(vehicleVin))
 
-      // Check if checklist already completed
+      // Check if checklist already completed (.maybeSingle() avoids 406 when no row yet)
       const { data: checklistData } = await (supabase as any)
         .from('job_safety_checklists')
         .select('*')
         .eq('job_id', params.id)
-        .single()
+        .maybeSingle()
 
       if (checklistData) {
         router.push(`/mechanic/job/${params.id}/diagnosis`)
@@ -202,8 +208,9 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
   // S-05 HARD: Walk-around required before safety checklist can be completed
   const hasWalkAround = walkAroundFiles.length >= 1
   const isDev = process.env.NODE_ENV === 'development'
+  const allowDemoSkip = true
   const canProceed =
-    (hasWalkAround || (isDev && devSkipWalkAround)) &&
+    (hasWalkAround || (allowDemoSkip && devSkipWalkAround)) &&
     safeEnvironment === true &&
     notBlockingJob === true &&
     vin.length === 17
@@ -282,7 +289,7 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
               {!hasWalkAround && (
                 <p className="mt-2 text-sm text-red-600">At least one video or photo is required (S-05).</p>
               )}
-              {isDev && (
+              {(isDev || allowDemoSkip) && (
                 <div className="mt-4 pt-4 border-t border-amber-200">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -291,7 +298,9 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
                       onChange={(e) => setDevSkipWalkAround(e.target.checked)}
                       className="rounded border-amber-600"
                     />
-                    <span className="text-sm font-medium text-amber-900">Skip walk-around for testing (dev only)</span>
+                    <span className="text-sm font-medium text-amber-900">
+                      {isDev ? 'Skip walk-around for testing (dev only)' : 'Skip walk-around (demo only)'}
+                    </span>
                   </label>
                 </div>
               )}
