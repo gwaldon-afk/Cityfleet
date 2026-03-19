@@ -21,7 +21,16 @@ interface JobDetail {
   assigned_mechanic_id: string | null
   manager_approved_at: string | null
   vehicle: { registration_number: string | null; vin: string | null; make: string | null; model: string | null } | null
-  customer: { name: string } | null
+  customer: { name: string; labour_rate_cents: number | null } | null
+}
+
+interface TimeEntryRow {
+  id: string
+  mechanic_id: string
+  start_time: string
+  end_time: string | null
+  duration_seconds: number | null
+  mechanic: { first_name: string; last_name: string } | null
 }
 
 interface RelatedJobRow {
@@ -73,7 +82,9 @@ export default function ManagerJobDetailPage() {
   const { user, site, role } = useAuth()
   const [job, setJob] = useState<JobDetail | null>(null)
   const [defects, setDefects] = useState<DefectRow[]>([])
+  const [timeEntries, setTimeEntries] = useState<TimeEntryRow[]>([])
   const [jobParts, setJobParts] = useState<JobPartRow[]>([])
+  const [consumablesDollars, setConsumablesDollars] = useState('')
   const [partsCatalog, setPartsCatalog] = useState<PartRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -107,7 +118,7 @@ export default function ManagerJobDetailPage() {
       .select(`
         id, job_number, status, vehicle_id, po_number, po_date, work_type, description, created_at, assigned_mechanic_id, manager_approved_at,
         vehicle:vehicles(registration_number, vin, make, model),
-        customer:customers(name)
+        customer:customers(name, labour_rate_cents)
       `)
       .eq('id', id)
     if (role !== 'ops_manager') q = q.eq('site_id', site!.id)
@@ -164,6 +175,20 @@ export default function ManagerJobDetailPage() {
     setInvoices(data || [])
   }, [id])
 
+  const loadTimeEntries = useCallback(async () => {
+    if (!id) return
+    const supabase = createClient()
+    const { data } = await (supabase as any)
+      .from('time_entries')
+      .select(`
+        id, mechanic_id, start_time, end_time, duration_seconds,
+        mechanic:users(first_name, last_name)
+      `)
+      .eq('job_id', id)
+      .order('start_time')
+    setTimeEntries(data || [])
+  }, [id])
+
   useEffect(() => {
     if (!id) return
     ;(async () => {
@@ -171,10 +196,11 @@ export default function ManagerJobDetailPage() {
       await loadJob()
       await loadDefects()
       await loadJobParts()
+      await loadTimeEntries()
       await loadInvoices()
       setLoading(false)
     })()
-  }, [id, loadJob, loadDefects, loadJobParts, loadInvoices])
+  }, [id, loadJob, loadDefects, loadJobParts, loadTimeEntries, loadInvoices])
 
   useEffect(() => {
     if (job?.vehicle_id) loadRelatedJobs(job.vehicle_id)
@@ -665,10 +691,135 @@ export default function ManagerJobDetailPage() {
             <p className="text-sm text-gray-600 mb-4">
               Create an invoice for this job. When payment is received and cleared, mark it below. The vehicle cannot be released until all invoices are payment-cleared.
             </p>
+
+            {/* Job summary for invoice — mechanic time, parts, consumables (auto-updated) */}
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <h3 className="font-medium text-gray-900 mb-3">Job summary for invoice</h3>
+              {(() => {
+                const labourRateCents = job?.customer?.labour_rate_cents ?? 0
+                const totalLabourSeconds = timeEntries.reduce((s, e) => s + (e.duration_seconds ?? 0), 0)
+                const totalLabourHours = totalLabourSeconds / 3600
+                const labourTotalCents = labourRateCents ? Math.round(totalLabourHours * labourRateCents) : 0
+                const partsRows = jobParts.filter((jp) => jp.lifecycle_status !== 'cancelled')
+                const partsTotalCents = partsRows.reduce(
+                  (s, jp) => s + jp.quantity * (jp.unit_cost_cents ?? 0),
+                  0
+                )
+                const consumablesCents = Math.round((parseFloat(consumablesDollars) || 0) * 100)
+                const suggestedTotalCents = labourTotalCents + partsTotalCents + consumablesCents
+                const suggestedTotalDollars = (suggestedTotalCents / 100).toFixed(2)
+                return (
+                  <>
+                    <div className="mb-3">
+                      <h4 className="text-xs font-medium text-gray-600 mb-1">Mechanic time</h4>
+                      {timeEntries.length === 0 ? (
+                        <p className="text-sm text-gray-500">No time logged yet.</p>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-gray-600 border-b">
+                              <th className="pb-1 pr-2">Mechanic</th>
+                              <th className="pb-1 pr-2">Hours</th>
+                              <th className="pb-1 pr-2">Rate</th>
+                              <th className="pb-1">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {timeEntries.map((te) => {
+                              const hrs = (te.duration_seconds ?? 0) / 3600
+                              const lineCents = labourRateCents ? Math.round(hrs * labourRateCents) : 0
+                              const name = te.mechanic ? `${te.mechanic.first_name} ${te.mechanic.last_name}` : '—'
+                              return (
+                                <tr key={te.id} className="border-b border-gray-100">
+                                  <td className="py-1 pr-2">{name}</td>
+                                  <td className="py-1 pr-2">{hrs.toFixed(2)}</td>
+                                  <td className="py-1 pr-2">{labourRateCents ? `$${(labourRateCents / 100).toFixed(2)}/hr` : '—'}</td>
+                                  <td className="py-1">{lineCents ? `$${(lineCents / 100).toFixed(2)}` : '—'}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                      {timeEntries.length > 0 && (
+                        <p className="text-sm text-gray-700 mt-1">
+                          Labour total: <strong>${(labourTotalCents / 100).toFixed(2)}</strong>
+                          {!labourRateCents && job?.customer && (
+                            <span className="text-amber-600 ml-2">(Set labour rate on customer for $)</span>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                    <div className="mb-3">
+                      <h4 className="text-xs font-medium text-gray-600 mb-1">Parts used</h4>
+                      {partsRows.length === 0 ? (
+                        <p className="text-sm text-gray-500">No parts on this job.</p>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-gray-600 border-b">
+                              <th className="pb-1 pr-2">Part</th>
+                              <th className="pb-1 pr-2">Qty</th>
+                              <th className="pb-1 pr-2">Unit $</th>
+                              <th className="pb-1">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {partsRows.map((jp) => {
+                              const uc = jp.unit_cost_cents ?? 0
+                              const lineCents = jp.quantity * uc
+                              return (
+                                <tr key={jp.id} className="border-b border-gray-100">
+                                  <td className="py-1 pr-2">{jp.part ? `${jp.part.part_number} — ${jp.part.description || '—'}` : jp.part_id}</td>
+                                  <td className="py-1 pr-2">{jp.quantity}</td>
+                                  <td className="py-1 pr-2">{uc ? `$${(uc / 100).toFixed(2)}` : '—'}</td>
+                                  <td className="py-1">{lineCents ? `$${(lineCents / 100).toFixed(2)}` : '—'}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                      {partsRows.length > 0 && (
+                        <p className="text-sm text-gray-700 mt-1">Parts total: <strong>${(partsTotalCents / 100).toFixed(2)}</strong></p>
+                      )}
+                    </div>
+                    <div className="mb-3">
+                      <h4 className="text-xs font-medium text-gray-600 mb-1">Consumables</h4>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={consumablesDollars}
+                        onChange={(e) => setConsumablesDollars(e.target.value)}
+                        className="w-32 border border-gray-300 rounded px-2 py-1 text-sm"
+                      />
+                      <span className="text-sm text-gray-600 ml-2">$ (optional)</span>
+                    </div>
+                    <p className="text-sm font-medium text-gray-900 pt-2 border-t border-gray-200">
+                      Suggested invoice total: <strong>${suggestedTotalDollars}</strong>
+                    </p>
+                  </>
+                )
+              })()}
+            </div>
+
             {!showCreateInvoice ? (
               <button
                 type="button"
-                onClick={() => setShowCreateInvoice(true)}
+                onClick={() => {
+                  const labourRateCents = job?.customer?.labour_rate_cents ?? 0
+                  const totalLabourSeconds = timeEntries.reduce((s, e) => s + (e.duration_seconds ?? 0), 0)
+                  const totalLabourHours = totalLabourSeconds / 3600
+                  const labourTotalCents = labourRateCents ? Math.round(totalLabourHours * labourRateCents) : 0
+                  const partsRows = jobParts.filter((jp) => jp.lifecycle_status !== 'cancelled')
+                  const partsTotalCents = partsRows.reduce((s, jp) => s + jp.quantity * (jp.unit_cost_cents ?? 0), 0)
+                  const consumablesCents = Math.round((parseFloat(consumablesDollars) || 0) * 100)
+                  const suggested = (labourTotalCents + partsTotalCents + consumablesCents) / 100
+                  setCreateTotalDollars(suggested.toFixed(2))
+                  setShowCreateInvoice(true)
+                }}
                 className="mb-4 px-4 py-2 rounded-lg font-medium text-white bg-cityfleet-navy hover:opacity-90"
               >
                 + Create invoice
