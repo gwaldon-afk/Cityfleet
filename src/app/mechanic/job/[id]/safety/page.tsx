@@ -69,12 +69,13 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
       const vehicleVin = data?.vehicle?.vin
       if (vehicleVin && String(vehicleVin).length === 17) setVin(String(vehicleVin))
 
-      // Check if checklist already completed (.maybeSingle() avoids 406 when no row yet)
-      const { data: checklistData } = await (supabase as any)
+      // Limit 1 + array (no object+json) avoids 406 if multiple rows ever exist; RLS still scopes to current mechanic
+      const { data: checklistRows } = await (supabase as any)
         .from('job_safety_checklists')
         .select('*')
         .eq('job_id', params.id)
-        .maybeSingle()
+        .limit(1)
+      const checklistData = checklistRows?.[0]
 
       if (checklistData) {
         router.push(`/mechanic/job/${params.id}/diagnosis`)
@@ -90,12 +91,18 @@ export default function SafetyChecklistPage({ params }: { params: { id: string }
         a.file_path?.includes('walkaround')
       )
       if (walkaround.length > 0) {
-        setWalkAroundFiles(
-          walkaround.map((a: { file_path: string }) => ({
-            path: a.file_path,
-            url: supabase.storage.from('job-attachments').getPublicUrl(a.file_path).data.publicUrl,
-          }))
+        const bucket = supabase.storage.from('job-attachments')
+        const resolved = await Promise.all(
+          walkaround.map(async (a: { file_path: string }) => {
+            const { data: signed, error: signErr } = await bucket.createSignedUrl(a.file_path, 3600)
+            const url =
+              !signErr && signed?.signedUrl
+                ? signed.signedUrl
+                : bucket.getPublicUrl(a.file_path).data.publicUrl
+            return { path: a.file_path, url }
+          })
         )
+        setWalkAroundFiles(resolved)
       }
     } catch (err) {
       console.error('Error loading job:', err)

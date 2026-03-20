@@ -1,6 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- City Fleet — Reset demo data (for clean walkthrough)
--- Run this in Supabase SQL Editor, then run seed.sql and seed_phase_b.sql
+-- Run in Supabase SQL Editor, then run seed.sql (+ seed_phase_b.sql if used).
+-- Tester guide: docs/CLIENT-TEST-MANUAL.md | Accounts: docs/SEED-DATA.md
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- 1. Clear shifts so no mechanics are clocked on

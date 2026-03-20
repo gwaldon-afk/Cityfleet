@@ -117,9 +117,14 @@ export default function DefectCaptureScreen() {
     if (!jobId) return
     const { createClient } = require('@/lib/supabase/client')
     const supabase = createClient()
-    supabase.from('jobs').select('job_number').eq('id', jobId).single().then(({ data }: any) => {
-      if (data?.job_number) setJobNumber(data.job_number)
-    })
+    supabase
+      .from('jobs')
+      .select('job_number')
+      .eq('id', jobId)
+      .maybeSingle()
+      .then(({ data }: any) => {
+        if (data?.job_number) setJobNumber(data.job_number)
+      })
   }, [jobId])
 
   // ─── SUBMITTED STATE ──────────────────────────────────────────────────────

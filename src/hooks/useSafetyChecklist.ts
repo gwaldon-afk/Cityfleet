@@ -54,7 +54,7 @@ export function useSafetyChecklist(jobId: string) {
           job_id: jobId,
           mechanic_id: user.id,
           safe_environment: params.safeEnvironment,
-          not_blocking_faster_job: params.notBlockingFasterJob,
+          not_blocking_job: params.notBlockingFasterJob,
           vin_entered: params.vinEntered.trim(),
           completed_at: new Date().toISOString(),
         })

@@ -1,5 +1,14 @@
 # City Fleet — Seed data
 
+## Reset demo data (for retesting)
+
+1. In **Supabase → SQL Editor**, run **`supabase/reset_demo.sql`** (clears shifts, jobs, time entries, invoices, attachments, checklists, etc.).  
+2. Run **`supabase/seed.sql`** again (then **`supabase/seed_phase_b.sql`** if you use it).  
+
+There is **no in-app reset** — ops must run SQL. Client testers: see **`docs/CLIENT-TEST-MANUAL.md`**.
+
+---
+
 After running `supabase/seed.sql` (and optionally `supabase/seed_phase_b.sql`) in the Supabase SQL Editor, you can sign in with these test accounts. All passwords: **Password1!**
 
 ## Phase A — Test users (seed.sql)
@@ -29,7 +38,7 @@ Run `supabase/seed_phase_b.sql` **after** `seed.sql` to add a second site, more 
 - **1 site:** City Fleet Sydney (Sydney, NSW)
 - **2 customers:** Acme Transport Co, Metro Freight Pty Ltd
 - **2 vehicles:** ABC-123 (Volvo FH16), XYZ-789 (Scania R500)
-- **2 jobs:** JOB-SEED-001 (approved, assigned to Alex), JOB-SEED-002 (quoted, unassigned)
+- **2 jobs:** JOB-SEED-001 and JOB-SEED-002 (both **approved**, assigned to Alex — both appear under **My Jobs** for `mechanic@cityfleet.local`)
 
 **After seed_phase_b.sql (Phase B):**
 - **2nd site:** City Fleet Brisbane (Eagle Farm, QLD)

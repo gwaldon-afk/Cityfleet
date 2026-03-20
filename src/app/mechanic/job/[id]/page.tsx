@@ -37,6 +37,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
   const loadJobDetails = async () => {
     try {
+      // maybeSingle() avoids HTTP 406 when job is missing or RLS returns 0 rows (PostgREST object+json)
       const { data, error } = await supabase
         .from('jobs')
         .select(`
@@ -45,9 +46,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           vehicle:vehicles(registration_number)
         `)
         .eq('id', params.id)
-        .single()
+        .maybeSingle()
 
       if (error) throw error
+      if (!data) {
+        setJob(null)
+        return
+      }
 
       const vehicleIdentifier = data.vehicle?.registration_number ?? data.vehicle_id ?? ''
       setJob({
@@ -81,6 +86,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
     try {
       // L-02: Check for active job
+      // maybeSingle() when no open time entry — .single() caused 406 in browser network tab
       const { data, error } = await supabase
         .from('time_entries')
         .select(`
@@ -91,7 +97,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         .is('end_time', null)
         .order('start_time', { ascending: false })
         .limit(1)
-        .single()
+        .maybeSingle()
 
       if (data && !error) {
         setActiveJob(data)

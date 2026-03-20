@@ -104,14 +104,17 @@ VALUES
   ('d0000002-0000-4000-8000-000000000002', 'c0000002-0000-4000-8000-000000000002', 'XYZ-789', '1HGBH41JXMN109186', 'Scania', 'R500', 2023, 'active')
 ON CONFLICT (id) DO NOTHING;
 
--- ═══ 5. Jobs (quoted; one assigned to mechanic) ═══
+-- ═══ 5. Jobs (both approved + assigned so mechanics see two jobs in My Jobs) ═══
 INSERT INTO public.jobs (job_number, vehicle_id, customer_id, site_id, po_number, po_date, description, status, assigned_mechanic_id)
 VALUES
   ('JOB-SEED-001', 'd0000001-0000-4000-8000-000000000001', 'c0000001-0000-4000-8000-000000000001', 'a0000001-0000-4000-8000-000000000001',
    'PO-2026-001', CURRENT_DATE, 'Scheduled service and brake inspection', 'approved', 'b0000001-0000-4000-8000-000000000001'),
   ('JOB-SEED-002', 'd0000002-0000-4000-8000-000000000002', 'c0000002-0000-4000-8000-000000000002', 'a0000001-0000-4000-8000-000000000001',
-   'PO-2026-002', CURRENT_DATE, 'Pre-trip inspection and tyre check', 'quoted', NULL)
+   'PO-2026-002', CURRENT_DATE, 'Pre-trip inspection and tyre check', 'approved', 'b0000001-0000-4000-8000-000000000001')
 ON CONFLICT (job_number) DO NOTHING;
+
+-- If you already ran an older seed (JOB-SEED-002 was quoted/unassigned), run once:
+-- UPDATE public.jobs SET status = 'approved', assigned_mechanic_id = 'b0000001-0000-4000-8000-000000000001' WHERE job_number = 'JOB-SEED-002';
 
 -- ═══ 6. Defects for JOB-SEED-001 (outstanding defects for manager review / test flow) ═══
 INSERT INTO public.defects (job_id, description, severity, evidence_urls, customer_approval_status, estimated_cost_cents)
