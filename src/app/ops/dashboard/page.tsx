@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useAuth } from '@/contexts/AuthContext'
 import ProtectedRoute from '@/components/protected-route'
@@ -41,13 +41,21 @@ export default function OpsDashboardPage() {
                 Signed in as {user?.name} ({role})
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => fetchAll()}
-              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 text-sm font-medium"
-            >
-              Refresh
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href="/ops/executive/realtime"
+                className="px-4 py-2 rounded-lg bg-cityfleet-navy text-white text-sm font-medium hover:opacity-90"
+              >
+                Real-time operations (EXEC-01)
+              </Link>
+              <button
+                type="button"
+                onClick={() => fetchAll()}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 text-sm font-medium"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
 
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Close-out queue</h2>

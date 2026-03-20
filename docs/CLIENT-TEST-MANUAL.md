@@ -1,8 +1,31 @@
 # City Fleet — Client UAT / demo testing manual
 
-Use this with the **Vercel preview URL** and your **Supabase project** (same database the app points to).
+## Application URL (Vercel)
 
-**Default test password (seed users):** `Password1!`
+**Open the app:** [https://cityfleet-git-main-gary-waldons-projects.vercel.app/](https://cityfleet-git-main-gary-waldons-projects.vercel.app/)
+
+Plain text: `https://cityfleet-git-main-gary-waldons-projects.vercel.app/`
+
+---
+
+## Login credentials (Phase A — seed users)
+
+**Password for all accounts:** `Password1!`
+
+| Role | Email | Password |
+|------|--------|----------|
+| Mechanic | mechanic@cityfleet.local | Password1! |
+| Workshop Manager | manager@cityfleet.local | Password1! |
+| Ops Manager | ops@cityfleet.local | Password1! |
+| Administrator | admin@cityfleet.local | Password1! |
+
+Use the **Application URL** above → **Log in** with the email and password for the role you are testing.
+
+*(Phase B adds more users — see **docs/SEED-DATA.md**.)*
+
+---
+
+This manual assumes the Vercel deployment is connected to your **Supabase project** (same database as configured in Vercel environment variables).
 
 ---
 
@@ -31,16 +54,16 @@ Full reference: **`docs/SEED-DATA.md`** (accounts, what each seed creates, troub
 
 ---
 
-## 3. Test accounts (Phase A)
+## 3. What each role is for
 
-| Role | Email | Use for |
-|------|--------|--------|
-| Mechanic | `mechanic@cityfleet.local` | My Jobs, clock on, safety, work flow |
-| Workshop Manager | `manager@cityfleet.local` | Dashboard, assign mechanics, approve jobs, invoices |
-| Ops Manager | `ops@cityfleet.local` | Cross-site / ops views (if enabled) |
-| Administrator | `admin@cityfleet.local` | Admin screens |
+| Role | Typical use in UAT |
+|------|---------------------|
+| Mechanic | My Jobs, clock on, safety checklist, diagnosis, work flow |
+| Workshop Manager | Dashboard, assign mechanics, approve jobs, invoices |
+| Ops Manager | Cross-site / ops views (if enabled in your build) |
+| Administrator | Admin screens |
 
-*(Phase B adds more sites/users — see SEED-DATA.md.)*
+Logins are in **Login credentials** at the top of this document.
 
 ---
 
@@ -90,3 +113,9 @@ Full reference: **`docs/SEED-DATA.md`** (accounts, what each seed creates, troub
 ## 7. Security reminder
 
 Change or remove seed users and passwords before any **production** or long-lived shared environment.
+
+---
+
+## PDF for clients
+
+To create a **PDF**: open this file in VS Code / Cursor (preview), GitHub, or any Markdown viewer, then **Print → Save as PDF**. You can also paste the **Application URL** and **Login credentials** table into Word or Google Docs and export as PDF.

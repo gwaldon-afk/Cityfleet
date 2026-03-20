@@ -99,6 +99,12 @@ export default function ManagerDashboardPage() {
                 Refresh
               </button>
               <Link
+                href="/manager/executive/realtime"
+                className="px-3 py-2 rounded-lg border border-white/40 text-white text-sm hover:bg-white/10"
+              >
+                Real-time operations
+              </Link>
+              <Link
                 href="/manager/jobs/new"
                 className="inline-flex items-center gap-2 bg-cityfleet-gold text-cityfleet-navy font-semibold py-2 px-4 rounded-lg hover:opacity-90 transition"
               >
